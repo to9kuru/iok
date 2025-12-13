@@ -124,7 +124,7 @@ const player = {
     targetX: 0, targetY: 0,
     baseRadius: 14, 
     radius: 14,     
-    speed: 7,       
+    speed: 12,       
     moving: false,
     color: "#00ffff"
 };
@@ -216,7 +216,7 @@ function spawnEnemy(difficulty) {
 
     const angle = Math.atan2(player.y - y, player.x - x);
     
-    const speed = 3 + (difficulty * 0.5) + (Math.random() * 2);
+    const speed = 7 + (difficulty * 0.5) + (Math.random() * 2);
 
     enemies.push({
         x, y,
