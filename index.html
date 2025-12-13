@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>im god</title>
+<title>弱いやつから死んでいく</title>
+
 <style>
 body {
     margin: 0;
@@ -12,7 +13,11 @@ body {
     font-family: "Yu Mincho", serif;
     user-select: none;
 }
-canvas { display: block; cursor: crosshair; }
+canvas {
+    display: block;
+    cursor: crosshair;
+    touch-action: none; /* ← 超重要：pointermove を殺さない */
+}
 #ui {
     position: absolute;
     inset: 0;
@@ -29,7 +34,10 @@ h1 {
     letter-spacing: 0.5rem;
     text-shadow: 0 0 10px #0ff;
 }
-p { font-size: 1.4rem; color: #aaa; }
+p {
+    font-size: 1.4rem;
+    color: #aaa;
+}
 #score-display {
     position: absolute;
     top: 20px;
@@ -94,19 +102,22 @@ let w, h;
 let isPlaying = false;
 let startTime;
 let animationId;
+let isInputActive = false;
 
+/* ===== 自機 ===== */
 const player = {
     x: 0,
     y: 0,
     targetX: 0,
     targetY: 0,
-    radius: 14,          // 自機を大きく
-    speed: 6,
+    radius: 14,      // 大きめ
+    speed: 6,        // 最大速度
     color: "#00ffff"
 };
 
 let enemies = [];
 
+/* ===== 初期化 ===== */
 function resize() {
     w = canvas.width = innerWidth;
     h = canvas.height = innerHeight;
@@ -116,18 +127,33 @@ function resize() {
 }
 addEventListener("resize", resize);
 
-addEventListener("mousedown", e => setTarget(e.clientX, e.clientY));
-addEventListener("touchstart", e => {
-    const t = e.touches[0];
-    setTarget(t.clientX, t.clientY);
-}, { passive: true });
+/* ===== 入力処理（最重要） ===== */
+canvas.addEventListener("pointerdown", e => {
+    isInputActive = true;
+    setTarget(e.clientX, e.clientY);
+});
 
+canvas.addEventListener("pointermove", e => {
+    if (!isInputActive) return;
+    setTarget(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("pointerup", () => {
+    isInputActive = false;
+});
+
+canvas.addEventListener("pointercancel", () => {
+    isInputActive = false;
+});
+
+/* ===== ターゲット更新 ===== */
 function setTarget(x, y) {
     if (!isPlaying) startGame();
     player.targetX = x;
     player.targetY = y;
 }
 
+/* ===== ゲーム制御 ===== */
 function startGame() {
     isPlaying = true;
     ui.style.display = "none";
@@ -144,17 +170,19 @@ function resetGame() {
     drawIdle();
 }
 
+/* ===== 敵生成 ===== */
 function spawnEnemy(difficulty) {
-    const r = 10 + Math.random() * 8;   // 敵を大きく
+    const r = 12 + Math.random() * 10;
     const side = Math.floor(Math.random() * 4);
     let x, y;
-    if (side === 0) { x = Math.random() * w; y = -30; }
-    if (side === 1) { x = w + 30; y = Math.random() * h; }
-    if (side === 2) { x = Math.random() * w; y = h + 30; }
-    if (side === 3) { x = -30; y = Math.random() * h; }
+
+    if (side === 0) { x = Math.random() * w; y = -40; }
+    if (side === 1) { x = w + 40; y = Math.random() * h; }
+    if (side === 2) { x = Math.random() * w; y = h + 40; }
+    if (side === 3) { x = -40; y = Math.random() * h; }
 
     const angle = Math.atan2(player.y - y, player.x - x);
-    const speed = 3 + difficulty * 0.6;
+    const speed = 3 + difficulty * 0.7;
 
     enemies.push({
         x, y,
@@ -164,17 +192,33 @@ function spawnEnemy(difficulty) {
     });
 }
 
+/* ===== 自機移動（一定速度） ===== */
 function movePlayer() {
     const dx = player.targetX - player.x;
     const dy = player.targetY - player.y;
     const dist = Math.hypot(dx, dy);
-    if (dist > 1) {
+
+    if (dist > 0.5) {
         const move = Math.min(player.speed, dist);
         player.x += dx / dist * move;
         player.y += dy / dist * move;
     }
 }
 
+/* ===== 描画 ===== */
+function drawIdle() {
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, w, h);
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fillStyle = player.color;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = player.color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+}
+
+/* ===== ゲームオーバー ===== */
 function gameOver() {
     isPlaying = false;
     cancelAnimationFrame(animationId);
@@ -183,23 +227,12 @@ function gameOver() {
     gameOverScreen.style.display = "flex";
 }
 
-function drawIdle() {
-    ctx.fillStyle = "#050505";
-    ctx.fillRect(0,0,w,h);
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2);
-    ctx.fillStyle = player.color;
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = player.color;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-}
-
+/* ===== メインループ ===== */
 function loop() {
     if (!isPlaying) return;
 
     ctx.fillStyle = "rgba(5,5,5,0.35)";
-    ctx.fillRect(0,0,w,h);
+    ctx.fillRect(0, 0, w, h);
 
     const time = (Date.now() - startTime) / 1000;
     const difficulty = 1 + Math.floor(time / 8);
@@ -208,11 +241,11 @@ function loop() {
     movePlayer();
 
     ctx.beginPath();
-    ctx.arc(player.x, player.y, player.radius, 0, Math.PI*2);
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
     ctx.fillStyle = player.color;
     ctx.fill();
 
-    if (Math.random() < 0.06 + difficulty * 0.015) {
+    if (Math.random() < 0.06 + difficulty * 0.02) {
         spawnEnemy(difficulty);
     }
 
@@ -222,7 +255,7 @@ function loop() {
         e.y += e.vy;
 
         ctx.beginPath();
-        ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
         ctx.fillStyle = "#ff3333";
         ctx.fill();
 
@@ -235,7 +268,9 @@ function loop() {
     animationId = requestAnimationFrame(loop);
 }
 
+/* ===== 起動 ===== */
 resize();
 </script>
+
 </body>
 </html>
