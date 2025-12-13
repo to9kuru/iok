@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>めっちゃ咲く
+    </title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: "Yu Mincho", "Hiragino Mincho ProN", serif; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            display: block;
+            cursor: crosshair; /* カーソルを消さずに十字にする */
+        }
+        #ui {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #fff;
+            pointer-events: none;
+            z-index: 10;
+        }
+        h1 {
+            font-size: 4rem;
+            text-shadow: 0 0 10px #0ff;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+            letter-spacing: 0.5rem;
+        }
+        p {
+            font-size: 1.5rem;
+            color: #aaa;
+            font-weight: bold;
+        }
+        #score-display {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #0ff;
+            font-size: 1.8rem;
+            font-weight: bold;
+            pointer-events: none;
+            text-shadow: 0 0 5px #0ff;
+            font-family: "Courier New", monospace; /* 数字は見やすく */
+        }
+        #game-over-screen {
+            display: none;
+            background: rgba(0, 0, 0, 0.85);
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: white;
+            z-index: 20;
+        }
+        button {
+            background: transparent;
+            border: 2px solid #0ff;
+            color: #0ff;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            margin-top: 30px;
+            transition: 0.2s;
+            font-family: "Yu Mincho", serif;
+            font-weight: bold;
+            pointer-events: auto;
+        }
+        button:hover {
+            background: #0ff;
+            color: #000;
+            box-shadow: 0 0 20px #0ff;
+        }
+        .controls-hint {
+            margin-top: 20px;
+            font-size: 1rem;
+            color: #888;
+        }
+        .blink {
+            animation: blinker 1.5s linear infinite;
+        }
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="score-display">生存時間: 0.00秒</div>
+
+    <div id="ui">
+        <h1>IOK</h1>
+        <p>ゲーム</p>
+        <p class="controls-hint blink">画面を押して開始</p>
+    </div>
+
+    <div id="game-over-screen">
+        <h1 style="color:#ff3333; text-shadow: 0 0 10px #ff0000; font-size: 5rem;">無念</h1>
+        <p id="final-score">記録: 0.00秒</p>
+        <button onclick="resetGame()">再挑戦</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const ui = document.getElementById('ui');
+    const scoreDisplay = document.getElementById('score-display');
+    const gameOverScreen = document.getElementById('game-over-screen');
+    const finalScoreText = document.getElementById('final-score');
+
+    let width, height;
+    let isPlaying = false;
+    let animationId;
+    let startTime;
+    let difficultyMultiplier = 1;
+
+    // 自機の設定
+    const player = {
+        x: 0,
+        y: 0,
+        radius: 8,
+        color: '#00ffff',
+        trail: []
+    };
+
+    // 敵配列
+    let enemies = [];
+    let particles = [];
+
+    // マウス位置（初期値は中央）
+    let mouseX = window.innerWidth / 2;
+    let mouseY = window.innerHeight / 2;
+
+    // 画面サイズ調整
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+        if (!isPlaying) {
+            mouseX = width / 2;
+            mouseY = height / 2;
+            player.x = mouseX;
+            player.y = mouseY;
+            // 待機画面でも描画を一回更新
+            drawTitleScreenBackground();
+        }
+    }
+    window.addEventListener('resize', resize);
+
+    // マウス追従
+    window.addEventListener('mousemove', (e) => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+    });
+    
+    // タッチ対応
+    window.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        mouseX = e.touches[0].clientX;
+        mouseY = e.touches[0].clientY;
+    }, {passive: false});
+
+    // 開始
+    window.addEventListener('mousedown', () => {
+        if (!isPlaying && gameOverScreen.style.display === 'none') {
+            startGame();
+        }
+    });
+
+    function startGame() {
+        isPlaying = true;
+        ui.style.display = 'none';
+        gameOverScreen.style.display = 'none';
+        enemies = [];
+        particles = [];
+        player.trail = [];
+        startTime = Date.now();
+        difficultyMultiplier = 1;
+        
+        player.x = mouseX;
+        player.y = mouseY;
+
+        loop();
+    }
+
+    function resetGame() {
+        gameOverScreen.style.display = 'none';
+        ui.style.display = 'block';
+        drawTitleScreenBackground();
+    }
+
+    function spawnEnemy() {
+        const spawnCount = 1 + Math.floor(difficultyMultiplier / 2);
+
+        for (let i = 0; i < spawnCount; i++) {
+            const type = Math.random();
+            let enemy = {
+                x: 0,
+                y: 0,
+                vx: 0,
+                vy: 0,
+                radius: 4 + Math.random() * 4,
+                color: '#ff3333',
+                type: 'linear'
+            };
+
+            const side = Math.floor(Math.random() * 4);
+            if (side === 0) { enemy.x = Math.random() * width; enemy.y = -20; }
+            else if (side === 1) { enemy.x = width + 20; enemy.y = Math.random() * height; }
+            else if (side === 2) { enemy.x = Math.random() * width; enemy.y = height + 20; }
+            else { enemy.x = -20; enemy.y = Math.random() * height; }
+
+            const speedBase = (3 + Math.random() * 3) * (1 + difficultyMultiplier * 0.2);
+            
+            if (type < 0.6) {
+                const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+                enemy.vx = Math.cos(angle) * speedBase;
+                enemy.vy = Math.sin(angle) * speedBase;
+                enemy.type = 'linear';
+            } else if (type < 0.9) {
+                enemy.type = 'chaser';
+                enemy.speed = speedBase * 0.6;
+                enemy.color = '#ff00ff';
+            } else {
+                enemy.vx = (Math.random() - 0.5) * speedBase * 2;
+                enemy.vy = (Math.random() - 0.5) * speedBase * 2;
+                enemy.type = 'random';
+                enemy.color = '#ffff00';
+            }
+            enemies.push(enemy);
+        }
+    }
+
+    function createExplosion(x, y, color) {
+        for (let i = 0; i < 20; i++) {
+            particles.push({
+                x: x,
+                y: y,
+                vx: (Math.random() - 0.5) * 10,
+                vy: (Math.random() - 0.5) * 10,
+                life: 1.0,
+                color: color
+            });
+        }
+    }
+
+    function gameOver() {
+        isPlaying = false;
+        createExplosion(player.x, player.y, player.color);
+        cancelAnimationFrame(animationId);
+        
+        // 爆発エフェクトだけ少し動かす
+        let explosionFrame = 0;
+        function explosionLoop() {
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // 爆発描画
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.05;
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+            ctx.globalAlpha = 1.0;
+
+            if (particles.length > 0) {
+                requestAnimationFrame(explosionLoop);
+            } else {
+                const timeScore = ((Date.now() - startTime) / 1000).toFixed(2);
+                finalScoreText.innerText = `生存記録: ${timeScore}秒`;
+                gameOverScreen.style.display = 'flex';
+            }
+        }
+        explosionLoop();
+    }
+
+    function drawTitleScreenBackground() {
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(0, 0, width, height);
+        // 自機だけぽつんと表示
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+        ctx.fillStyle = player.color;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = player.color;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    function loop() {
+        if (!isPlaying) return;
+
+        ctx.fillStyle = 'rgba(5, 5, 5, 0.3)';
+        ctx.fillRect(0, 0, width, height);
+
+        const currentTime = (Date.now() - startTime) / 1000;
+        scoreDisplay.innerText = `生存時間: ${currentTime.toFixed(2)}秒`;
+        
+        difficultyMultiplier = 1 + Math.floor(currentTime / 10);
+        
+        player.x += (mouseX - player.x) * 0.5;
+        player.y += (mouseY - player.y) * 0.5;
+
+        player.trail.push({x: player.x, y: player.y});
+        if (player.trail.length > 10) player.trail.shift();
+        
+        ctx.beginPath();
+        for (let i = 0; i < player.trail.length; i++) {
+            const pos = player.trail[i];
+            ctx.lineTo(pos.x, pos.y);
+        }
+        ctx.strokeStyle = `rgba(0, 255, 255, 0.2)`;
+        ctx.lineWidth = player.radius;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+        ctx.fillStyle = player.color;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = player.color;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (Math.random() < 0.05 + (difficultyMultiplier * 0.01)) {
+            spawnEnemy();
+        }
+
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            const e = enemies[i];
+            
+            if (e.type === 'chaser') {
+                const angle = Math.atan2(player.y - e.y, player.x - e.x);
+                e.x += Math.cos(angle) * e.speed;
+                e.y += Math.sin(angle) * e.speed;
+                e.speed += 0.02;
+            } else {
+                e.x += e.vx;
+                e.y += e.vy;
+            }
+
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+            ctx.fillStyle = e.color;
+            ctx.fill();
+
+            if (e.x < -50 || e.x > width + 50 || e.y < -50 || e.y > height + 50) {
+                enemies.splice(i, 1);
+                continue;
+            }
+
+            const dx = player.x - e.x;
+            const dy = player.y - e.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < player.radius + e.radius - 2) {
+                gameOver();
+                return; 
+            }
+        }
+
+        animationId = requestAnimationFrame(loop);
+    }
+
+    // 初期化実行
+    resize();
+</script>
+</body>
+</html>
