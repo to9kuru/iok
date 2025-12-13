@@ -6,71 +6,96 @@
 <title>弱いやつから死んでいく</title>
 
 <style>
-body {
-    margin: 0;
-    overflow: hidden;
-    background: #050505;
-    user-select: none;
-}
-canvas {
-    display: block;
-    touch-action: none;
-}
-#ui {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-direction: column;
-    color: #fff;
-}
-#score {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    color: #0ff;
-    font-family: monospace;
-    font-size: 1.5rem;
-}
-#gameover {
-    display: none;
-    position: absolute;
-    inset: 0;
-    background: rgba(0,0,0,0.85);
-    color: #fff;
-    justify-content: center;
-    align-items: center;
-    flex-direction: column;
-}
-button {
-    margin-top: 30px;
-    padding: 15px 40px;
-    font-size: 1.2rem;
-}
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: #050505;
+        font-family: "Yu Mincho", serif;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    canvas {
+        display: block;
+        touch-action: none;
+    }
+    #ui, #game-over-screen {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        color: #fff;
+        z-index: 10;
+        pointer-events: none;
+    }
+    h1 {
+        font-size: 5rem;
+        letter-spacing: 0.5rem;
+        text-shadow: 0 0 20px #0ff;
+        margin: 0;
+    }
+    p { font-size: 1.4rem; color: #aaa; margin-top: 10px; }
+    #score-display {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        color: #0ff;
+        font-size: 1.5rem;
+        font-family: monospace;
+        z-index: 5;
+        text-shadow: 0 0 5px #0ff;
+    }
+    #game-over-screen {
+        display: none;
+        background: rgba(0,0,0,0.85);
+        z-index: 20;
+        pointer-events: auto; /* Allows button clicking */
+    }
+    button {
+        margin-top: 40px;
+        padding: 15px 50px;
+        font-size: 1.5rem;
+        background: transparent;
+        border: 2px solid #0ff;
+        color: #0ff;
+        cursor: pointer;
+        transition: 0.2s;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+    button:hover {
+        background: #0ff;
+        color: #000;
+        box-shadow: 0 0 20px #0ff;
+    }
 </style>
 </head>
 
 <body>
 
-<div id="score">0.00</div>
+<div id="score-display">TIME: 0.00</div>
 
 <div id="ui">
-    <h1>IOK</h1>
-    <p>画面を押して開始</p>
+    <h2>弱いやつから死んでいく</h2>
+    <p>強き者となるため、レッツクリック</p>
 </div>
 
-<div id="gameover">
-    <h1>GAME OVER</h1>
-    <p id="final"></p>
-    <button onclick="resetGame()">Retry</button>
+<div id="game-over-screen">
+    <h1 style="color:#ff3333; text-shadow: 0 0 20px #f00;">無念</h1>
+    <p id="final-score" style="color:white;"></p>
+    <button onclick="resetGame()">RETRY</button>
 </div>
 
-<canvas id="c"></canvas>
+<canvas id="gameCanvas"></canvas>
 
 <script>
-const canvas = document.getElementById("c");
+const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
+const ui = document.getElementById("ui");
+const scoreDisplay = document.getElementById("score-display");
+const gameOverScreen = document.getElementById("game-over-screen");
+const finalScore = document.getElementById("final-score");
 
 let w, h;
 let isPlaying = false;
@@ -78,161 +103,233 @@ let isInputActive = false;
 let animationId;
 let startTime;
 
+// Game State
 const player = {
-    x: 0,
-    y: 0,
-    targetX: 0,
-    targetY: 0,
-    r: 18,
-    speed: 6
+    x: 0, y: 0,
+    targetX: 0, targetY: 0,
+    radius: 14,
+    speed: 7, // Slightly faster for better control
+    moving: false,
+    color: "#00ffff"
 };
 
 let enemies = [];
+let particles = []; // Array for explosion effects
 
-/* ===== 初期化 ===== */
+/* ===== SETUP ===== */
 function resize() {
     w = canvas.width = innerWidth;
     h = canvas.height = innerHeight;
-    player.x = player.targetX = w / 2;
-    player.y = player.targetY = h / 2;
-    drawIdle();
+    if(!isPlaying) {
+        player.x = player.targetX = w / 2;
+        player.y = player.targetY = h / 2;
+        drawIdle();
+    }
 }
-addEventListener("resize", resize);
+window.addEventListener("resize", resize);
 
-/* ===== 入力 ===== */
+/* ===== CONTROLS ===== */
 canvas.addEventListener("pointerdown", e => {
+    if (gameOverScreen.style.display === 'flex') return;
+    
+    if (!isPlaying) {
+        startGame();
+    }
     isInputActive = true;
+    player.moving = true;
     setTarget(e.clientX, e.clientY);
-    if (!isPlaying) startGame();
 });
 
 canvas.addEventListener("pointermove", e => {
-    if (!isInputActive || !isPlaying) return;
+    if (!isPlaying || !isInputActive) return;
     setTarget(e.clientX, e.clientY);
 });
 
 canvas.addEventListener("pointerup", () => {
     isInputActive = false;
-    player.targetX = player.x;
-    player.targetY = player.y;
+    player.moving = false;
 });
 
-canvas.addEventListener("pointercancel", () => {
-    isInputActive = false;
-});
-
-/* ===== ターゲット ===== */
 function setTarget(x, y) {
     player.targetX = x;
     player.targetY = y;
 }
 
-/* ===== ゲーム制御 ===== */
+/* ===== CORE LOGIC ===== */
 function startGame() {
     isPlaying = true;
+    ui.style.display = "none";
+    gameOverScreen.style.display = "none";
     enemies = [];
+    particles = [];
     startTime = Date.now();
-    document.getElementById("ui").style.display = "none";
-    document.getElementById("gameover").style.display = "none";
+    player.x = w/2; 
+    player.y = h/2;
+    player.targetX = w/2; 
+    player.targetY = h/2;
     loop();
 }
 
 function resetGame() {
+    gameOverScreen.style.display = "none";
+    ui.style.display = "flex";
     isPlaying = false;
-    document.getElementById("ui").style.display = "flex";
-    drawIdle();
+    resize(); // Recenters player
 }
 
-/* ===== 自機移動 ===== */
-function movePlayer() {
-    if (!isInputActive) return;
-    const dx = player.targetX - player.x;
-    const dy = player.targetY - player.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > 0.1) {
-        const m = Math.min(player.speed, dist);
-        player.x += dx / dist * m;
-        player.y += dy / dist * m;
-    }
-}
-
-/* ===== 敵 ===== */
-function spawnEnemy(diff) {
-    const r = 10 + Math.random() * 10;
+/* ===== ENEMIES ===== */
+function spawnEnemy(difficulty) {
+    const r = 10 + Math.random() * 12;
+    // Spawn farther outside so they don't pop in visibly
+    const offset = 50; 
     const side = Math.floor(Math.random() * 4);
     let x, y;
-    if (side === 0) { x = Math.random() * w; y = -30; }
-    if (side === 1) { x = w + 30; y = Math.random() * h; }
-    if (side === 2) { x = Math.random() * w; y = h + 30; }
-    if (side === 3) { x = -30; y = Math.random() * h; }
 
-    const a = Math.atan2(player.y - y, player.x - x);
-    const s = 2.5 + diff * 0.6;
+    if (side === 0) { x = Math.random() * w; y = -offset; }       // Top
+    if (side === 1) { x = w + offset; y = Math.random() * h; }    // Right
+    if (side === 2) { x = Math.random() * w; y = h + offset; }    // Bottom
+    if (side === 3) { x = -offset; y = Math.random() * h; }       // Left
+
+    const angle = Math.atan2(player.y - y, player.x - x);
+    // Speed scales with difficulty
+    const speed = 3 + (difficulty * 0.5) + (Math.random() * 2);
 
     enemies.push({
         x, y,
-        vx: Math.cos(a) * s,
-        vy: Math.sin(a) * s,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
         r
     });
 }
 
-/* ===== 描画 ===== */
-function drawIdle() {
-    ctx.fillStyle = "#050505";
-    ctx.fillRect(0, 0, w, h);
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-    ctx.fillStyle = "#0ff";
-    ctx.fill();
+/* ===== PARTICLES (EXPLOSION) ===== */
+function createExplosion(x, y, color) {
+    for (let i = 0; i < 20; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 5 + 2;
+        particles.push({
+            x: x, y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            color: color
+        });
+    }
 }
 
-/* ===== ゲームオーバー ===== */
+/* ===== GAME OVER ===== */
 function gameOver() {
     isPlaying = false;
     isInputActive = false;
-    cancelAnimationFrame(animationId);
+    createExplosion(player.x, player.y, player.color);
+    
+    // One final draw to show the explosion start
+    renderFrame(); 
 
-    const t = ((Date.now() - startTime) / 1000).toFixed(2);
-    document.getElementById("final").textContent = `Time: ${t}s`;
-    document.getElementById("gameover").style.display = "flex";
+    setTimeout(() => {
+        cancelAnimationFrame(animationId);
+        const timeStr = ((Date.now() - startTime) / 1000).toFixed(2);
+        finalScore.textContent = `生存記録: ${timeStr}秒`;
+        gameOverScreen.style.display = "flex";
+    }, 500); // Slight delay to see the explosion
 }
 
-/* ===== ループ ===== */
+/* ===== LOOP ===== */
 function loop() {
     if (!isPlaying) return;
+    renderFrame();
+    animationId = requestAnimationFrame(loop);
+}
 
-    ctx.fillStyle = "rgba(5,5,5,0.35)";
+function renderFrame() {
+    // Trail effect
+    ctx.fillStyle = "rgba(5, 5, 5, 0.3)";
     ctx.fillRect(0, 0, w, h);
 
-    const time = (Date.now() - startTime) / 1000;
-    document.getElementById("score").textContent = time.toFixed(2);
+    const currentTime = (Date.now() - startTime) / 1000;
+    const difficulty = 1 + Math.floor(currentTime / 10); // Increases every 10s
+    scoreDisplay.textContent = `TIME: ${currentTime.toFixed(2)}`;
 
-    movePlayer();
-
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-    ctx.fillStyle = "#0ff";
-    ctx.fill();
-
-    const diff = 1 + Math.floor(time / 8);
-    if (Math.random() < 0.05 + diff * 0.02) spawnEnemy(diff);
-
-    for (const e of enemies) {
-        e.x += e.vx;
-        e.y += e.vy;
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
-        ctx.fillStyle = "#f33";
-        ctx.fill();
-
-        if (Math.hypot(player.x - e.x, player.y - e.y) < player.r + e.r) {
-            gameOver();
-            return;
+    // 1. Update Player
+    if (player.moving) {
+        const dx = player.targetX - player.x;
+        const dy = player.targetY - player.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 1) {
+            const step = Math.min(player.speed, dist);
+            player.x += (dx / dist) * step;
+            player.y += (dy / dist) * step;
         }
     }
 
-    animationId = requestAnimationFrame(loop);
+    // Draw Player (with Glow)
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = player.color;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fillStyle = player.color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // 2. Spawn Enemies
+    if (Math.random() < 0.05 + (difficulty * 0.01)) {
+        spawnEnemy(difficulty);
+    }
+
+    // 3. Update Enemies
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        e.x += e.vx;
+        e.y += e.vy;
+
+        // Draw Enemy
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.fillStyle = "#ff3333";
+        ctx.fill();
+
+        // Collision Check
+        const dist = Math.hypot(player.x - e.x, player.y - e.y);
+        if (isPlaying && dist < player.radius + e.r) {
+            gameOver();
+            return;
+        }
+
+        // Garbage Collection (Remove enemies far off screen)
+        if (e.x < -100 || e.x > w + 100 || e.y < -100 || e.y > h + 100) {
+            enemies.splice(i, 1);
+        }
+    }
+
+    // 4. Update Particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.05;
+        
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+}
+
+function drawIdle() {
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, w, h);
+    
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = player.color;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+    ctx.fillStyle = player.color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
 }
 
 resize();
