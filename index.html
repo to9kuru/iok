@@ -35,22 +35,27 @@
         text-shadow: 0 0 20px #0ff;
         margin: 0;
     }
-    p { font-size: 1.4rem; color: #aaa; margin-top: 10px; }
-    #score-display {
+    p { font-size: 1.4rem; color: #aaa; margin-top: 10px; text-align: center; }
+    
+    /* スコア表示エリア */
+    .hud {
         position: absolute;
-        top: 20px;
         left: 20px;
         color: #0ff;
         font-size: 1.5rem;
         font-family: monospace;
         z-index: 5;
         text-shadow: 0 0 5px #0ff;
+        pointer-events: none;
     }
+    #score-display { top: 20px; }
+    #death-display { top: 50px; color: #ff3333; text-shadow: 0 0 5px #f00; }
+
     #game-over-screen {
         display: none;
         background: rgba(0,0,0,0.85);
         z-index: 20;
-        pointer-events: auto; /* Allows button clicking */
+        pointer-events: auto;
     }
     button {
         margin-top: 40px;
@@ -74,16 +79,17 @@
 
 <body>
 
-<div id="score-display">TIME: 0.00</div>
+<div id="score-display" class="hud">TIME: 0.00</div>
+<div id="death-display" class="hud">DEATH: 0</div>
 
 <div id="ui">
-    <h2>弱いやつから死んでいく</h2>
-    <p>強き者となるため、レッツクリック</p>
+    <h2>弱き者から死んでいく</h2>
+    <p>強き者となるため、レッツクリック！</p>
 </div>
 
 <div id="game-over-screen">
     <h1 style="color:#ff3333; text-shadow: 0 0 20px #f00;">無念</h1>
-    <p id="final-score" style="color:white;"></p>
+    <p id="final-score" style="color:white; line-height: 1.8;"></p>
     <button onclick="resetGame()">RETRY</button>
 </div>
 
@@ -94,32 +100,54 @@ const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const ui = document.getElementById("ui");
 const scoreDisplay = document.getElementById("score-display");
+const deathDisplay = document.getElementById("death-display");
 const gameOverScreen = document.getElementById("game-over-screen");
 const finalScore = document.getElementById("final-score");
+
+/* === 難易度調整用設定 === */
+// この画面幅(px)を基準(倍率1.0)とします。
+// 例: 600に設定すると、画面幅1200のPCでは球が2倍の大きさになり、
+// 画面幅300のスマホでは0.5倍の大きさになります。これで難易度感を統一します。
+const BASE_SCREEN_WIDTH = 600; 
+let gameScale = 1; // 現在のスケール倍率
 
 let w, h;
 let isPlaying = false;
 let isInputActive = false;
 let animationId;
 let startTime;
+let deathCount = 0; 
 
 // Game State
 const player = {
     x: 0, y: 0,
     targetX: 0, targetY: 0,
-    radius: 14,
-    speed: 7, // Slightly faster for better control
+    baseRadius: 14, // 基準の半径
+    radius: 14,     // 実際の半径（リサイズ時に計算）
+    baseSpeed: 7,   // 基準のスピード
+    speed: 7,       // 実際のスピード
     moving: false,
     color: "#00ffff"
 };
 
 let enemies = [];
-let particles = []; // Array for explosion effects
+let particles = [];
 
 /* ===== SETUP ===== */
 function resize() {
     w = canvas.width = innerWidth;
     h = canvas.height = innerHeight;
+
+    // 画面幅に応じたスケール値を計算
+    gameScale = w / BASE_SCREEN_WIDTH;
+    
+    // スマホなどで小さくなりすぎないよう、最低倍率を0.5に制限（お好みで調整可）
+    gameScale = Math.max(gameScale, 0.5);
+
+    // プレイヤーのサイズと速度を更新
+    player.radius = player.baseRadius * gameScale;
+    player.speed = player.baseSpeed * gameScale;
+
     if(!isPlaying) {
         player.x = player.targetX = w / 2;
         player.y = player.targetY = h / 2;
@@ -163,6 +191,10 @@ function startGame() {
     enemies = [];
     particles = [];
     startTime = Date.now();
+    
+    deathCount = 0;
+    deathDisplay.textContent = `DEATH: ${deathCount}`;
+
     player.x = w/2; 
     player.y = h/2;
     player.targetX = w/2; 
@@ -174,14 +206,18 @@ function resetGame() {
     gameOverScreen.style.display = "none";
     ui.style.display = "flex";
     isPlaying = false;
-    resize(); // Recenters player
+    resize();
 }
 
 /* ===== ENEMIES ===== */
 function spawnEnemy(difficulty) {
-    const r = 10 + Math.random() * 12;
-    // Spawn farther outside so they don't pop in visibly
-    const offset = 50; 
+    // 敵の基本サイズを設定し、スケール倍率を掛ける
+    const baseR = 10 + Math.random() * 12;
+    const r = baseR * gameScale; 
+    
+    // 出現位置のオフセットもスケールさせる
+    const offset = 50 * gameScale; 
+    
     const side = Math.floor(Math.random() * 4);
     let x, y;
 
@@ -191,8 +227,10 @@ function spawnEnemy(difficulty) {
     if (side === 3) { x = -offset; y = Math.random() * h; }       // Left
 
     const angle = Math.atan2(player.y - y, player.x - x);
-    // Speed scales with difficulty
-    const speed = 3 + (difficulty * 0.5) + (Math.random() * 2);
+    
+    // 敵のスピードもスケールさせる
+    const baseSpeed = 3 + (difficulty * 0.5) + (Math.random() * 2);
+    const speed = baseSpeed * gameScale;
 
     enemies.push({
         x, y,
@@ -206,7 +244,11 @@ function spawnEnemy(difficulty) {
 function createExplosion(x, y, color) {
     for (let i = 0; i < 20; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 5 + 2;
+        
+        // パーティクルの飛び散る速度もスケール
+        const baseSpeed = Math.random() * 5 + 2;
+        const speed = baseSpeed * gameScale;
+
         particles.push({
             x: x, y: y,
             vx: Math.cos(angle) * speed,
@@ -223,15 +265,16 @@ function gameOver() {
     isInputActive = false;
     createExplosion(player.x, player.y, player.color);
     
-    // One final draw to show the explosion start
     renderFrame(); 
 
     setTimeout(() => {
         cancelAnimationFrame(animationId);
         const timeStr = ((Date.now() - startTime) / 1000).toFixed(2);
-        finalScore.textContent = `生存記録: ${timeStr}秒`;
+        
+        finalScore.innerHTML = `生存記録: ${timeStr}秒<br>あなたより弱き者: ${deathCount}体`;
+        
         gameOverScreen.style.display = "flex";
-    }, 500); // Slight delay to see the explosion
+    }, 500);
 }
 
 /* ===== LOOP ===== */
@@ -242,12 +285,11 @@ function loop() {
 }
 
 function renderFrame() {
-    // Trail effect
     ctx.fillStyle = "rgba(5, 5, 5, 0.3)";
     ctx.fillRect(0, 0, w, h);
 
     const currentTime = (Date.now() - startTime) / 1000;
-    const difficulty = 1 + Math.floor(currentTime / 10); // Increases every 10s
+    const difficulty = 1 + Math.floor(currentTime / 10);
     scoreDisplay.textContent = `TIME: ${currentTime.toFixed(2)}`;
 
     // 1. Update Player
@@ -255,15 +297,17 @@ function renderFrame() {
         const dx = player.targetX - player.x;
         const dy = player.targetY - player.y;
         const dist = Math.hypot(dx, dy);
-        if (dist > 1) {
+        
+        // 判定の許容値も少しスケール
+        if (dist > 1 * gameScale) {
             const step = Math.min(player.speed, dist);
             player.x += (dx / dist) * step;
             player.y += (dy / dist) * step;
         }
     }
 
-    // Draw Player (with Glow)
-    ctx.shadowBlur = 20;
+    // Draw Player
+    ctx.shadowBlur = 20 * gameScale; // 光彩もスケール
     ctx.shadowColor = player.color;
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
@@ -282,7 +326,6 @@ function renderFrame() {
         e.x += e.vx;
         e.y += e.vy;
 
-        // Draw Enemy
         ctx.beginPath();
         ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
         ctx.fillStyle = "#ff3333";
@@ -295,9 +338,12 @@ function renderFrame() {
             return;
         }
 
-        // Garbage Collection (Remove enemies far off screen)
-        if (e.x < -100 || e.x > w + 100 || e.y < -100 || e.y > h + 100) {
+        // Garbage Collection
+        const margin = 100 * gameScale;
+        if (e.x < -margin || e.x > w + margin || e.y < -margin || e.y > h + margin) {
             enemies.splice(i, 1);
+            deathCount++;
+            deathDisplay.textContent = `DEATH: ${deathCount}`;
         }
     }
 
@@ -311,7 +357,8 @@ function renderFrame() {
         ctx.globalAlpha = p.life;
         ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        // パーティクルのサイズもスケール(基本3px)
+        ctx.arc(p.x, p.y, 3 * gameScale, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1.0;
 
@@ -323,7 +370,7 @@ function drawIdle() {
     ctx.fillStyle = "#050505";
     ctx.fillRect(0, 0, w, h);
     
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = 20 * gameScale;
     ctx.shadowColor = player.color;
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
@@ -332,6 +379,7 @@ function drawIdle() {
     ctx.shadowBlur = 0;
 }
 
+// 初期化実行
 resize();
 </script>
 </body>
