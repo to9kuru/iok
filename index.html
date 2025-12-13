@@ -4,234 +4,340 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>弱き者から死んでいく</title>
-
 <style>
+    /* ベース設定：画面外の黒帯部分 */
     body {
         margin: 0;
         overflow: hidden;
-        background: #050505;
-        font-family: "Yu Mincho", serif;
+        background: #000; /* 黒帯の色 */
+        font-family: "Yu Mincho", "YuMincho", serif;
         user-select: none;
         -webkit-user-select: none;
-    }
-    canvas {
-        display: block;
         touch-action: none;
     }
-    #ui, #game-over-screen {
+
+    /* キャンバスは画面全体に広げる（描画側で制御する） */
+    canvas {
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+    }
+
+    /* ゲームのUIレイヤー：ここをJSで拡縮してゲーム画面に合わせる */
+    #game-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 600px;  /* 固定解像度 幅 */
+        height: 800px; /* 固定解像度 高さ */
+        transform-origin: top left;
+        pointer-events: none; /* UIの下のキャンバスをクリックできるように */
+        overflow: hidden;
+    }
+
+    /* ゲーム画面内の装飾（枠線など） */
+    #game-border {
+        position: absolute;
+        inset: 0;
+        border: 2px solid #333;
+        box-sizing: border-box;
+        z-index: 1;
+    }
+
+    /* テキスト・ボタン類 */
+    .screen {
         position: absolute;
         inset: 0;
         display: flex;
+        flex-direction: column;
         justify-content: center;
         align-items: center;
-        flex-direction: column;
-        color: #fff;
         z-index: 10;
-        pointer-events: none;
+        pointer-events: auto;
     }
-    h1 {
-        font-size: 5rem;
-        letter-spacing: 0.5rem;
-        text-shadow: 0 0 20px #0ff;
-        margin: 0;
-    }
-    h2 {
-        font-size: 3rem;
-        letter-spacing: 0.3rem;
-        text-shadow: 0 0 15px #0ff;
-        margin: 0;
-    }
-    p { font-size: 1.4rem; color: #aaa; margin-top: 10px; text-align: center; }
+
+    h1, h2, p { text-align: center; margin: 0; color: #fff; }
     
+    h2 {
+        font-size: 42px;
+        letter-spacing: 0.2em;
+        text-shadow: 0 0 15px #0ff;
+        margin-bottom: 15px;
+    }
+    
+    p {
+        font-size: 18px;
+        color: #aaa;
+        line-height: 1.6;
+    }
+
     .hud {
         position: absolute;
         left: 20px;
-        color: #0ff;
-        font-size: 1.5rem;
+        font-size: 24px;
         font-family: monospace;
+        font-weight: bold;
         z-index: 5;
-        text-shadow: 0 0 5px #0ff;
-        pointer-events: none;
+        text-shadow: 0 0 5px currentColor;
     }
-    #score-display { top: 20px; }
-    #death-display { top: 50px; color: #ff3333; text-shadow: 0 0 5px #f00; }
+    #score-display { top: 20px; color: #0ff; }
+    #death-display { top: 55px; color: #ff3333; }
 
+    /* スタート画面 */
+    #start-screen { background: rgba(0,0,0,0.4); }
+    
+    /* ゲームオーバー画面 */
     #game-over-screen {
         display: none;
         background: rgba(0,0,0,0.85);
-        z-index: 20;
-        pointer-events: auto;
     }
+    
+    h1.go-title {
+        font-size: 80px;
+        color: #ff3333;
+        text-shadow: 0 0 30px #f00;
+        letter-spacing: 0.1em;
+        margin-bottom: 20px;
+    }
+
     button {
         margin-top: 40px;
         padding: 15px 50px;
-        font-size: 1.5rem;
+        font-size: 24px;
         background: transparent;
         border: 2px solid #0ff;
         color: #0ff;
         cursor: pointer;
-        transition: 0.2s;
         text-transform: uppercase;
         letter-spacing: 2px;
+        transition: 0.2s;
     }
     button:hover {
         background: #0ff;
         color: #000;
         box-shadow: 0 0 20px #0ff;
     }
+
 </style>
 </head>
-
 <body>
-
-<div id="score-display" class="hud">TIME: 0.00</div>
-<div id="death-display" class="hud">DEATH: 0</div>
-
-<div id="ui">
-    <h2>弱き者から死んでいく</h2>
-    <p>強き者となるため、レッツクリック</p>
-</div>
-
-<div id="game-over-screen">
-    <h1 style="color:#ff3333; text-shadow: 0 0 20px #f00;">無念</h1>
-    <p id="final-score" style="color:white; line-height: 1.8;"></p>
-    <button onclick="resetGame()">RETRY</button>
-</div>
 
 <canvas id="gameCanvas"></canvas>
 
+<div id="game-container">
+    <div id="game-border"></div>
+    
+    <div id="score-display" class="hud">TIME: 0.00</div>
+    <div id="death-display" class="hud">DEATH: 0</div>
+
+    <div id="start-screen" class="screen">
+        <h2>弱き者から死んでいく</h2>
+        <p>画面をクリック（タップ）して開始</p>
+    </div>
+
+    <div id="game-over-screen" class="screen">
+        <h1 class="go-title">無念</h1>
+        <p id="final-score">生存記録: 0.00秒<br>弱き者: 0体</p>
+        <button onclick="resetGame()">RETRY</button>
+    </div>
+</div>
+
 <script>
+// ■ 設定：固定解像度
+// ここを変えない限り、どの端末でもこの広さ・距離感になります
+const GAME_WIDTH = 600;
+const GAME_HEIGHT = 800;
+
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-const ui = document.getElementById("ui");
+const container = document.getElementById("game-container");
+const startScreen = document.getElementById("start-screen");
+const gameOverScreen = document.getElementById("game-over-screen");
 const scoreDisplay = document.getElementById("score-display");
 const deathDisplay = document.getElementById("death-display");
-const gameOverScreen = document.getElementById("game-over-screen");
 const finalScore = document.getElementById("final-score");
 
-const BASE_SCREEN_WIDTH = 600; 
-let gameScale = 1; 
+// 画面合わせ用変数
+let scale = 1;
+let offsetX = 0;
+let offsetY = 0;
 
-let w, h;
+// ゲーム状態
 let isPlaying = false;
 let isInputActive = false;
 let animationId;
 let startTime;
-let deathCount = 0; 
+let deathCount = 0;
 
+// プレイヤー設定（固定値でOK）
 const player = {
-    x: 0, y: 0,
-    targetX: 0, targetY: 0,
-    baseRadius: 14, 
-    radius: 14,     
-    speed: 12,       
-    moving: false,
-    color: "#00ffff"
+    x: GAME_WIDTH / 2,
+    y: GAME_HEIGHT / 2,
+    targetX: GAME_WIDTH / 2,
+    targetY: GAME_HEIGHT / 2,
+    radius: 28,
+    speed: 10,
+    color: "#00ffff",
+    moving: false
 };
 
 let enemies = [];
 let particles = [];
 
+// ■ リサイズ処理：画面サイズに合わせて拡大縮小率を計算する
 function resize() {
-    w = canvas.width = innerWidth;
-    h = canvas.height = innerHeight;
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
 
-    gameScale = w / BASE_SCREEN_WIDTH;
-    gameScale = Math.max(gameScale, 0.5);
+    canvas.width = winW;
+    canvas.height = winH;
 
-    player.radius = player.baseRadius * gameScale;
+    // 縦横比を維持して収まる最大サイズを計算
+    const scaleX = winW / GAME_WIDTH;
+    const scaleY = winH / GAME_HEIGHT;
+    scale = Math.min(scaleX, scaleY);
 
-    if(!isPlaying) {
-        player.x = player.targetX = w / 2;
-        player.y = player.targetY = h / 2;
+    // 中央寄せのための余白計算
+    offsetX = (winW - GAME_WIDTH * scale) / 2;
+    offsetY = (winH - GAME_HEIGHT * scale) / 2;
+
+    // UIコンテナ（HTML要素）をCSSで変形
+    container.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+
+    if (!isPlaying) {
         drawIdle();
     }
 }
 window.addEventListener("resize", resize);
 
-canvas.addEventListener("pointerdown", e => {
-    if (gameOverScreen.style.display === 'flex') return;
+// ■ 入力座標の変換（画面座標 → ゲーム内座標）
+function getGamePos(clientX, clientY) {
+    const x = (clientX - offsetX) / scale;
+    const y = (clientY - offsetY) / scale;
+    return { x, y };
+}
+
+// 入力イベントハンドラ
+function handleStart(cx, cy) {
+    if (gameOverScreen.style.display === "flex") return; // ゲームオーバー画面なら無視
     
     if (!isPlaying) {
         startGame();
     }
+    
     isInputActive = true;
     player.moving = true;
-    setTarget(e.clientX, e.clientY);
-});
+    
+    const pos = getGamePos(cx, cy);
+    setTarget(pos.x, pos.y);
+}
 
-canvas.addEventListener("pointermove", e => {
+function handleMove(cx, cy) {
     if (!isPlaying || !isInputActive) return;
-    setTarget(e.clientX, e.clientY);
-});
+    const pos = getGamePos(cx, cy);
+    setTarget(pos.x, pos.y);
+}
 
-canvas.addEventListener("pointerup", () => {
+function handleEnd() {
     isInputActive = false;
     player.moving = false;
-});
+}
+
+// マウスイベント
+window.addEventListener("mousedown", e => handleStart(e.clientX, e.clientY));
+window.addEventListener("mousemove", e => handleMove(e.clientX, e.clientY));
+window.addEventListener("mouseup", handleEnd);
+
+// タッチイベント
+window.addEventListener("touchstart", e => {
+    e.preventDefault(); // スクロール防止
+    handleStart(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+window.addEventListener("touchmove", e => {
+    e.preventDefault();
+    handleMove(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+window.addEventListener("touchend", handleEnd);
+
 
 function setTarget(x, y) {
-    player.targetX = x;
-    player.targetY = y;
+    // ターゲットが画面外に行かないように制限
+    player.targetX = Math.max(0, Math.min(GAME_WIDTH, x));
+    player.targetY = Math.max(0, Math.min(GAME_HEIGHT, y));
 }
 
 function startGame() {
     isPlaying = true;
-    ui.style.display = "none";
+    startScreen.style.display = "none";
     gameOverScreen.style.display = "none";
+    
     enemies = [];
     particles = [];
+    deathCount = 0;
     startTime = Date.now();
     
-    deathCount = 0;
-    deathDisplay.textContent = `DEATH: ${deathCount}`;
+    deathDisplay.textContent = `DEATH: 0`;
+    
+    // プレイヤーリセット
+    player.x = GAME_WIDTH / 2;
+    player.y = GAME_HEIGHT / 2;
+    player.targetX = player.x;
+    player.targetY = player.y;
 
-    player.x = w/2; 
-    player.y = h/2;
-    player.targetX = w/2; 
-    player.targetY = h/2;
     loop();
 }
 
 function resetGame() {
-    gameOverScreen.style.display = "none";
-    ui.style.display = "flex";
+    cancelAnimationFrame(animationId);
+
     isPlaying = false;
-    resize();
+    isInputActive = false;
+    player.moving = false;
+
+    gameOverScreen.style.display = "none";
+    startScreen.style.display = "flex";
+
+    player.x = GAME_WIDTH / 2;
+    player.y = GAME_HEIGHT / 2;
+    player.targetX = player.x;
+    player.targetY = player.y;
+
+    drawIdle();
 }
 
+
 function spawnEnemy(difficulty) {
-    const baseR = 10 + Math.random() * 12;
-    const r = baseR * gameScale; 
-    
-    const offset = 50 * gameScale; 
-    
-    const side = Math.floor(Math.random() * 4);
+    const r = 28 + Math.random() * 8; // 敵のサイズ
+    const spawnMargin = 50; // 画面外の出現位置マージン
+
     let x, y;
+    const side = Math.floor(Math.random() * 4);
 
-    if (side === 0) { x = Math.random() * w; y = -offset; }       
-    if (side === 1) { x = w + offset; y = Math.random() * h; }    
-    if (side === 2) { x = Math.random() * w; y = h + offset; }    
-    if (side === 3) { x = -offset; y = Math.random() * h; }       
+    // 0:上 1:右 2:下 3:左
+    if (side === 0) { x = Math.random() * GAME_WIDTH; y = -spawnMargin; }
+    if (side === 1) { x = GAME_WIDTH + spawnMargin; y = Math.random() * GAME_HEIGHT; }
+    if (side === 2) { x = Math.random() * GAME_WIDTH; y = GAME_HEIGHT + spawnMargin; }
+    if (side === 3) { x = -spawnMargin; y = Math.random() * GAME_HEIGHT; }
 
+    // プレイヤーに向かう角度
     const angle = Math.atan2(player.y - y, player.x - x);
     
-    const speed = 9 + (difficulty * 0.5) + (Math.random() * 2);
+    // 速度計算（難易度依存）
+    const speed = 7 + (difficulty * 0.4) + (Math.random() * 2);
 
     enemies.push({
-        x, y,
+        x: x, y: y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        r
+        r: r
     });
 }
 
 function createExplosion(x, y, color) {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 25; i++) {
         const angle = Math.random() * Math.PI * 2;
-        
-        const speed = Math.random() * 5 + 2;
-
+        const speed = Math.random() * 6 + 2;
         particles.push({
             x: x, y: y,
             vx: Math.cos(angle) * speed,
@@ -245,19 +351,19 @@ function createExplosion(x, y, color) {
 function gameOver() {
     isPlaying = false;
     isInputActive = false;
+    cancelAnimationFrame(animationId);
+
     createExplosion(player.x, player.y, player.color);
-    
-    renderFrame(); 
+    renderFrame();
 
     setTimeout(() => {
-        cancelAnimationFrame(animationId);
-        const timeStr = ((Date.now() - startTime) / 1000).toFixed(2);
-        
-        finalScore.innerHTML = `生存記録: ${timeStr}秒<br>あなたより弱き者: ${deathCount}体`;
-        
+        const time = ((Date.now() - startTime) / 1000).toFixed(2);
+        finalScore.innerHTML =
+            `生存記録: ${time}秒<br>あなたより弱き者: ${deathCount}体`;
         gameOverScreen.style.display = "flex";
-    }, 500);
+    }, 600);
 }
+
 
 function loop() {
     if (!isPlaying) return;
@@ -266,18 +372,30 @@ function loop() {
 }
 
 function renderFrame() {
-    ctx.fillStyle = "rgba(5, 5, 5, 0.3)";
-    ctx.fillRect(0, 0, w, h);
+    // 1. 画面クリア（全体を黒帯色で）
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // 2. 座標系をゲーム内座標に変換
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
+    // 3. ゲーム背景（プレイエリア）
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    // 時間計算
     const currentTime = (Date.now() - startTime) / 1000;
-    const difficulty = 1 + Math.floor(currentTime / 10);
+    const difficulty = 1 + Math.floor(currentTime / 10); // 10秒ごとに難易度UP
     scoreDisplay.textContent = `TIME: ${currentTime.toFixed(2)}`;
 
+    // プレイヤー移動処理
     if (player.moving) {
         const dx = player.targetX - player.x;
         const dy = player.targetY - player.y;
         const dist = Math.hypot(dx, dy);
-        
+
         if (dist > 1) {
             const step = Math.min(player.speed, dist);
             player.x += (dx / dist) * step;
@@ -285,73 +403,107 @@ function renderFrame() {
         }
     }
 
-    ctx.shadowBlur = 20 * gameScale; 
+    // プレイヤー描画
+    ctx.shadowBlur = 20;
     ctx.shadowColor = player.color;
+    ctx.fillStyle = player.color;
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-    ctx.fillStyle = player.color;
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    if (Math.random() < 0.05 + (difficulty * 0.01)) {
+    // 敵の出現
+    if (Math.random() < 0.04 + (difficulty * 0.005)) {
         spawnEnemy(difficulty);
     }
 
+    // 敵の処理
+    const destroyLimit = 100; // 画面外判定ライン
     for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         e.x += e.vx;
         e.y += e.vy;
 
+        // 描画
+        ctx.fillStyle = "#ff3333";
         ctx.beginPath();
         ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
-        ctx.fillStyle = "#ff3333";
         ctx.fill();
 
+        // 衝突判定
         const dist = Math.hypot(player.x - e.x, player.y - e.y);
-        if (isPlaying && dist < player.radius + e.r) {
+        if (isPlaying && dist < player.radius + e.r - 2) {
             gameOver();
             return;
         }
 
-        const margin = 100 * gameScale;
-        if (e.x < -margin || e.x > w + margin || e.y < -margin || e.y > h + margin) {
+        // 画面外へ出たら消去＆カウント
+        if (e.x < -destroyLimit || e.x > GAME_WIDTH + destroyLimit ||
+            e.y < -destroyLimit || e.y > GAME_HEIGHT + destroyLimit) {
             enemies.splice(i, 1);
             deathCount++;
             deathDisplay.textContent = `DEATH: ${deathCount}`;
         }
     }
 
+    // パーティクル処理
     for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
-        p.life -= 0.05;
-        
+        p.life -= 0.04;
+
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+            continue;
+        }
+
         ctx.globalAlpha = p.life;
         ctx.fillStyle = p.color;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 3 * gameScale, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1.0;
-
-        if (p.life <= 0) particles.splice(i, 1);
     }
+    
+    // クリッピング（念のためゲーム画面外の描画を隠す）
+    // 背景色で塗りつぶしているので基本不要だが、パーティクル等がはみ出るのを防ぐ
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // 上の黒帯
+    ctx.fillStyle = "#000";
+    if (offsetY > 0) ctx.fillRect(0, 0, canvas.width, offsetY);
+    // 下の黒帯
+    if (offsetY > 0) ctx.fillRect(0, offsetY + GAME_HEIGHT * scale, canvas.width, offsetY + 1);
+    // 左の黒帯
+    if (offsetX > 0) ctx.fillRect(0, 0, offsetX, canvas.height);
+    // 右の黒帯
+    if (offsetX > 0) ctx.fillRect(offsetX + GAME_WIDTH * scale, 0, offsetX + 1, canvas.height);
 }
 
+// 待機画面の描画
 function drawIdle() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
+
     ctx.fillStyle = "#050505";
-    ctx.fillRect(0, 0, w, h);
-    
-    ctx.shadowBlur = 20 * gameScale;
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    ctx.shadowBlur = 20;
     ctx.shadowColor = player.color;
+    ctx.fillStyle = player.color;
     ctx.beginPath();
     ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-    ctx.fillStyle = player.color;
     ctx.fill();
     ctx.shadowBlur = 0;
 }
 
+// 初期化実行
 resize();
+
 </script>
 </body>
 </html>
