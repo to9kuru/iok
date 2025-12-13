@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>めっちゃ咲く
-    </title>
+    <title>量子回避 - 修羅の道</title>
     <style>
         body {
             margin: 0;
@@ -25,7 +24,7 @@
             transform: translate(-50%, -50%);
             text-align: center;
             color: #fff;
-            pointer-events: none;
+            pointer-events: none; /* UIが表示されていても下のCanvasへの入力を遮らないようにする */
             z-index: 10;
         }
         h1 {
@@ -49,7 +48,7 @@
             font-weight: bold;
             pointer-events: none;
             text-shadow: 0 0 5px #0ff;
-            font-family: "Courier New", monospace; /* 数字は見やすく */
+            font-family: "Courier New", monospace;
         }
         #game-over-screen {
             display: none;
@@ -101,14 +100,14 @@
     <div id="score-display">生存時間: 0.00秒</div>
 
     <div id="ui">
-        <h1>IOK</h1>
-        <p>ゲーム</p>
+        <h1>量子回避</h1>
+        <p>自機を操り 死線を潜れ</p>
         <p class="controls-hint blink">画面を押して開始</p>
     </div>
 
     <div id="game-over-screen">
         <h1 style="color:#ff3333; text-shadow: 0 0 10px #ff0000; font-size: 5rem;">無念</h1>
-        <p id="final-score">記録: 0.00秒</p>
+        <p id="final-score">生存記録: 0.00秒</p>
         <button onclick="resetGame()">再挑戦</button>
     </div>
 
@@ -153,7 +152,7 @@
             mouseX = width / 2;
             mouseY = height / 2;
             player.x = mouseX;
-            player.y = mouseY;
+            player.y = mouseY; // ★ playerの初期位置も中央に設定
             // 待機画面でも描画を一回更新
             drawTitleScreenBackground();
         }
@@ -164,6 +163,12 @@
     window.addEventListener('mousemove', (e) => {
         mouseX = e.clientX;
         mouseY = e.clientY;
+        if (!isPlaying) {
+            // ゲーム開始前のマウスオーバーでも自機を動かす
+            player.x = mouseX;
+            player.y = mouseY;
+            drawTitleScreenBackground();
+        }
     });
     
     // タッチ対応
@@ -171,14 +176,32 @@
         e.preventDefault();
         mouseX = e.touches[0].clientX;
         mouseY = e.touches[0].clientY;
+        if (!isPlaying) {
+            player.x = mouseX;
+            player.y = mouseY;
+            drawTitleScreenBackground();
+        }
     }, {passive: false});
 
-    // 開始
-    window.addEventListener('mousedown', () => {
+    // ===============================================
+    // ★ 修正点：ゲーム開始イベントリスナーを Canvas に直接設定
+    // ===============================================
+
+    // マウス（PC）での開始
+    canvas.addEventListener('mousedown', () => {
         if (!isPlaying && gameOverScreen.style.display === 'none') {
             startGame();
         }
     });
+
+    // タッチ（スマホ）での開始
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault(); // デフォルトの動作（スクロールなど）を防止
+        if (!isPlaying && gameOverScreen.style.display === 'none') {
+            startGame();
+        }
+    }, {passive: false});
+
 
     function startGame() {
         isPlaying = true;
@@ -190,6 +213,7 @@
         startTime = Date.now();
         difficultyMultiplier = 1;
         
+        // 開始時の位置を確定
         player.x = mouseX;
         player.y = mouseY;
 
@@ -262,13 +286,11 @@
         createExplosion(player.x, player.y, player.color);
         cancelAnimationFrame(animationId);
         
-        // 爆発エフェクトだけ少し動かす
         let explosionFrame = 0;
         function explosionLoop() {
             ctx.fillStyle = 'rgba(5, 5, 5, 0.3)';
             ctx.fillRect(0, 0, width, height);
             
-            // 爆発描画
             for (let i = particles.length - 1; i >= 0; i--) {
                 let p = particles[i];
                 p.x += p.vx;
@@ -297,7 +319,7 @@
     function drawTitleScreenBackground() {
         ctx.fillStyle = '#050505';
         ctx.fillRect(0, 0, width, height);
-        // 自機だけぽつんと表示
+        
         ctx.beginPath();
         ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
         ctx.fillStyle = player.color;
