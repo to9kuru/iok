@@ -250,15 +250,22 @@ window.addEventListener("mousemove", e => handleMove(e.clientX, e.clientY));
 window.addEventListener("mouseup", handleEnd);
 
 // タッチイベント
-window.addEventListener("touchstart", e => {
-    e.preventDefault(); // スクロール防止
+// 旧：window.addEventListener("touchstart", ... )
+// ↓推奨：canvas にだけ付ける
+canvas.addEventListener("touchstart", e => {
+    e.preventDefault(); // キャンバスでのスクロール防止
     handleStart(e.touches[0].clientX, e.touches[0].clientY);
 }, { passive: false });
-window.addEventListener("touchmove", e => {
+
+canvas.addEventListener("touchmove", e => {
     e.preventDefault();
     handleMove(e.touches[0].clientX, e.touches[0].clientY);
 }, { passive: false });
-window.addEventListener("touchend", handleEnd);
+
+canvas.addEventListener("touchend", e => {
+    // touchend は通常 passive:true でも問題ないが、そのまま処理
+    handleEnd();
+});
 
 
 function setTarget(x, y) {
